@@ -1,0 +1,50 @@
+# =============================================================================
+# Docker Compose : LocalStack + Cloud Security Scanner
+# =============================================================================
+# LocalStack simule les services AWS en local (gratuit).
+# Le scanner attend que LocalStack soit pret, cree des ressources
+# volontairement misconfigures, puis les scanne.
+# =============================================================================
+
+services:
+  # --- LocalStack : simulation AWS locale ---
+  localstack:
+    image: localstack/localstack:latest
+    ports:
+      - "4566:4566"
+    environment:
+      # Services AWS a simuler
+      - SERVICES=s3,iam,ec2
+      - DEBUG=0
+      - AWS_DEFAULT_REGION=us-east-1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # --- Setup : cree les ressources misconfigures dans LocalStack ---
+  setup:
+    build: .
+    depends_on:
+      localstack:
+        condition: service_healthy
+    environment:
+      - LOCALSTACK_ENDPOINT=http://localstack:4566
+      - AWS_REGION=us-east-1
+    command: python setup_localstack.py
+
+  # --- Scanner : detecte les misconfigurations ---
+  scanner:
+    build: .
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    environment:
+      - LOCALSTACK_ENDPOINT=http://localstack:4566
+      - AWS_REGION=us-east-1
+      - REPORT_DIR=/app/reports
+    volumes:
+      - ./reports:/app/reports
+    command: python -m scanner.main
