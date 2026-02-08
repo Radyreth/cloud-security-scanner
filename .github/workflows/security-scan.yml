@@ -1,0 +1,109 @@
+# =============================================================================
+# Cloud Security Scanner - CI Pipeline
+# =============================================================================
+# A chaque push :
+# 1. Lint le code Python
+# 2. Lance les tests unitaires (avec moto pour mocker AWS)
+# 3. Lance le scanner complet sur LocalStack
+# 4. Sauvegarde le rapport HTML en artifact telechar geable
+# =============================================================================
+
+name: Security Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ---- Lint avec flake8 ----
+  lint:
+    name: "Lint"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install flake8
+        run: pip install flake8
+
+      - name: Run flake8
+        run: flake8 scanner/ tests/ --max-line-length=120 --statistics
+
+  # ---- Tests unitaires avec moto (mock AWS) ----
+  test:
+    name: "Unit tests"
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run pytest
+        run: pytest tests/ -v
+
+  # ---- Scan complet sur LocalStack ----
+  scan:
+    name: "Full scan (LocalStack)"
+    runs-on: ubuntu-latest
+    needs: test
+
+    services:
+      # LocalStack tourne comme service dans le job GitHub Actions
+      localstack:
+        image: localstack/localstack:latest
+        ports:
+          - 4566:4566
+        env:
+          SERVICES: s3,iam,ec2
+          DEBUG: "0"
+        options: >-
+          --health-cmd="curl -f http://localhost:4566/_localstack/health"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=15
+          --health-start-period=15s
+
+    env:
+      LOCALSTACK_ENDPOINT: http://localhost:4566
+      AWS_REGION: us-east-1
+      REPORT_DIR: reports
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # Creer les ressources misconfigures dans LocalStack
+      - name: Setup insecure resources in LocalStack
+        run: python setup_localstack.py
+
+      # Lancer le scanner
+      - name: Run security scanner
+        # continue-on-error car le scanner exit 1 si des CRITICAL sont trouves
+        continue-on-error: true
+        run: python -m scanner.main
+
+      # Sauvegarder le rapport HTML comme artifact telechargeable
+      - name: Upload security report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-report
+          path: reports/security-report.html
+          retention-days: 30
