@@ -6,6 +6,7 @@ les misconfigurations de securite courantes sur S3, IAM et les Security Groups.
 Il genere un rapport HTML avec les resultats et un score global.
 """
 
+import argparse
 import os
 import sys
 import boto3
@@ -97,8 +98,25 @@ def calculate_score(findings):
     return max(0, 100 - total_penalty)
 
 
+def parse_args():
+    """Parse les arguments CLI."""
+    parser = argparse.ArgumentParser(description="Cloud Security Scanner")
+    parser.add_argument(
+        "--fail-on",
+        choices=["CRITICAL", "HIGH", "MEDIUM", "LOW"],
+        default="CRITICAL",
+        help="Minimum severity that triggers a non-zero exit code (default: CRITICAL)"
+    )
+    return parser.parse_args()
+
+
+# Ordre de severite pour comparaison
+SEVERITY_ORDER = ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
+
+
 def main():
     """Point d'entree principal du scanner."""
+    args = parse_args()
     start_time = datetime.utcnow()
 
     # Creer la session AWS/LocalStack
@@ -130,9 +148,15 @@ def main():
     generate_html_report(findings, score, start_time, report_path)
     print(f"\n[+] Rapport genere : {report_path}")
 
-    # Code de sortie non-zero si des findings critiques existent
-    if critical > 0:
-        print("\n[!] CRITICAL findings detected - exit code 1")
+    # Code de sortie non-zero si findings >= seuil de severite
+    threshold_idx = SEVERITY_ORDER.index(args.fail_on)
+    failing_severities = SEVERITY_ORDER[threshold_idx:]
+    failing_count = sum(
+        1 for f in findings if f["severity"] in failing_severities
+    )
+
+    if failing_count > 0:
+        print(f"\n[!] {failing_count} finding(s) >= {args.fail_on} - exit code 1")
         sys.exit(1)
 
     return findings, score
