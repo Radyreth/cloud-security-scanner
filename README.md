@@ -85,6 +85,16 @@ Chaque finding reduit le score selon sa severite :
 Un rapport visuel est genere avec un tableau de findings, des couleurs par severite,
 et un score global. Il est sauvegarde comme artifact GitHub Actions.
 
+### 5. Severity threshold
+Le flag `--fail-on` permet de controler le seuil de severite qui declenche un exit code 1 :
+```bash
+# Fail uniquement sur CRITICAL (defaut)
+python -m scanner.main --fail-on CRITICAL
+
+# Fail sur HIGH et CRITICAL
+python -m scanner.main --fail-on HIGH
+```
+
 ## Quick start
 
 ### Avec Docker Compose (recommande)
